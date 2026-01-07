@@ -1,0 +1,17 @@
+{
+  $schema: https://opencode.ai/schemas/2024-08-09/schema.json,
+  permissions: {
+    default: {
+      read: true,
+      write: true
+    },
+    path_overrides: [
+      {
+        path: .env,
+        read: false,
+        write: false,
+        execute: false
+      }
+    ]
+  }
+}
