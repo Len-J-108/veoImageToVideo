@@ -26,7 +26,7 @@ class KieAIClient:
                 "Accept": "application/json",
             }
         )
-        self._base_url = config.base_url.rstrip("/")
+        self._api_root = config.api_root.rstrip("/")
         self._poll_interval = config.poll_interval_seconds
         self._timeout_seconds = config.timeout_seconds
         self._max_retries = config.max_retries
@@ -35,19 +35,25 @@ class KieAIClient:
     def submit_generation(self, request: GenerationRequest) -> TaskSubmission:
         payload = request.to_payload()
         LOGGER.info(
-            "Submitting generation request: model=%s duration=%ss aspect_ratio=%s",
+            "Submitting generation request: model=%s aspect_ratio=%s generation_type=%s",
             payload["model"],
-            payload["duration"],
-            payload["aspect_ratio"],
+            payload["aspectRatio"],
+            payload["generationType"],
         )
-        response_json = self._request("POST", "/tasks", json=payload)
+        response_json = self._request("POST", "/generate", json=payload)
+        self._ensure_api_success(response_json, "generate")
         submission = TaskSubmission.from_api(response_json)
         LOGGER.info("Task %s generated, video processing...", submission.task_id)
         return submission
 
     def get_task_status(self, task_id: str) -> TaskStatus:
         LOGGER.debug("Fetching status for task %s", task_id)
-        response_json = self._request("GET", f"/tasks/{task_id}")
+        response_json = self._request(
+            "GET",
+            "/record-info",
+            params={"taskId": task_id},
+        )
+        self._ensure_api_success(response_json, "record-info")
         status = TaskStatus.from_api(response_json)
         return status
 
@@ -59,25 +65,31 @@ class KieAIClient:
             self._timeout_seconds,
         )
         start_time = time.monotonic()
-        last_state: Optional[str] = None
+        last_flag: Optional[int] = None
 
         while True:
             status = self.get_task_status(task_id)
-            if status.status != last_state:
-                LOGGER.info("Task %s status: %s", task_id, status.status)
-                last_state = status.status
+            if status.success_flag != last_flag:
+                LOGGER.info(
+                    "Task %s success_flag=%s error_code=%s",
+                    task_id,
+                    status.success_flag,
+                    status.error_code,
+                )
+                last_flag = status.success_flag
 
-            if status.status == "completed":
-                if not status.asset_url:
+            if status.is_complete:
+                asset_url = status.asset_url
+                if not asset_url:
                     raise RuntimeError(
-                        f"Task {task_id} reported completed but no asset URL was provided"
+                        f"Task {task_id} reported success but did not return result URLs"
                     )
                 LOGGER.info("Task %s completed successfully", task_id)
                 return status
 
-            if status.status == "failed":
+            if status.success_flag in {2, 3}:
                 raise RuntimeError(
-                    f"Task {task_id} failed: {status.error_message or 'Unknown error'}"
+                    f"Task {task_id} failed (code={status.error_code}): {status.error_message}"
                 )
 
             elapsed = time.monotonic() - start_time
@@ -86,11 +98,19 @@ class KieAIClient:
                     f"Polling timed out after {self._timeout_seconds}s for task {task_id}"
                 )
 
-            LOGGER.debug("Task %s still %s; sleeping %ss", task_id, status.status, self._poll_interval)
+            LOGGER.debug(
+                "Task %s still processing (flag=%s); sleeping %ss",
+                task_id,
+                status.success_flag,
+                self._poll_interval,
+            )
             time.sleep(self._poll_interval)
 
+    def _endpoint(self, path: str) -> str:
+        return f"{self._api_root}{path}"
+
     def _request(self, method: str, path: str, **kwargs) -> dict:
-        url = f"{self._base_url}{path}"
+        url = self._endpoint(path)
         attempt = 0
         while True:
             attempt += 1
@@ -112,3 +132,12 @@ class KieAIClient:
                     self._backoff_seconds,
                 )
                 time.sleep(self._backoff_seconds)
+
+    @staticmethod
+    def _ensure_api_success(response_json: dict, operation: str) -> None:
+        code = response_json.get("code")
+        if code != 200:
+            msg = response_json.get("msg")
+            raise RuntimeError(
+                f"KieAI {operation} call failed with code {code}: {msg}"
+            )

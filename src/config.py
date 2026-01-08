@@ -6,26 +6,21 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Tuple
 
 LOGGER = logging.getLogger(__name__)
 
-REFERENCE_IMAGE_URL = (
-    "https://storage.googleapis.com/kieai-assets/reference/bench-speaker.jpg"
-)
+REFERENCE_IMAGE_URL = "https://ibb.co/jvpw5pCp"
 GERMAN_SPEECH_TEXT = (
-    "Ich laufe um die Bank, während ich ruhig erkläre, wie sich jeder Schritt "
-    "nach vorne wie ein neues Kapitel anfühlt. Die Steinmauer hinter mir bleibt "
-    "stark, und meine Stimme trägt über den Platz."  # noqa: E501
+    "Hör mir bloß auf mit Pauperismus. Hier weiß schon lange keiner mehr wie er klarkommen soll"
 )
-GERMAN_STAGE_DIRECTION = (
-    "Die Person erhebt sich von einer Steinbank und beginnt langsam, den Rahmen zu umkreisen. "
-    "Die Kamera bleibt hochkant, folgt jedem Schritt sanft und betont den Kontrast zwischen "
-    "bewegter Figur und ruhiger Steinmauer."  # noqa: E501
-)
+GERMAN_STAGE_DIRECTION = "empört, motzend, energisch, mokierend"
 GERMAN_OUTRO_DESCRIPTION = (
     "Zum Schluss bleibt die Person kurz stehen, legt die Hand auf die Banklehne und lächelt "
     "zuversichtlich in die Kamera, bevor sie aus dem Bild nach links verschwindet."  # noqa: E501
 )
+DEFAULT_IMAGE_URLS: Tuple[str, ...] = (REFERENCE_IMAGE_URL,)
+DEFAULT_GENERATION_TYPE = "REFERENCE_2_VIDEO"
 
 
 @dataclass(frozen=True)
@@ -33,7 +28,7 @@ class AppConfig:
     """Container for immutable application settings."""
 
     api_key: str
-    base_url: str
+    api_root: str
     topic: str
     reference_image_url: str
     speech_text: str
@@ -47,6 +42,22 @@ class AppConfig:
     model: str
     max_retries: int
     retry_backoff_seconds: int
+    image_urls: tuple[str, ...]
+    generation_type: str
+    enable_translation: bool
+    watermark: str | None
+    callback_url: str | None
+    seed: int | None
+
+
+def _normalize_api_root(raw_url: str) -> str:
+    cleaned = raw_url.strip()
+    if not cleaned:
+        raise RuntimeError("KIEAI_BASE_URL must not be empty when provided.")
+    cleaned = cleaned.rstrip("/")
+    if cleaned.endswith("/generate"):
+        cleaned = cleaned[: -len("/generate")]
+    return cleaned
 
 
 def load_config() -> AppConfig:
@@ -58,13 +69,19 @@ def load_config() -> AppConfig:
             "Environment variable KIEAI_API_KEY must be set with a valid API key."
         )
 
+    raw_base_url = os.getenv(
+        "KIEAI_BASE_URL",
+        "https://api.kie.ai/api/v1/veo/generate",
+    )
+    api_root = _normalize_api_root(raw_base_url)
+
     results_dir = Path("results")
     results_dir.mkdir(parents=True, exist_ok=True)
 
     config = AppConfig(
         api_key=api_key,
-        base_url=os.getenv("KIEAI_BASE_URL", "https://api.kieai.com/v1"),
-        topic="stone-bench-walkthrough",
+        api_root=api_root,
+        topic="Pauperismus",
         reference_image_url=REFERENCE_IMAGE_URL,
         speech_text=GERMAN_SPEECH_TEXT,
         stage_direction=GERMAN_STAGE_DIRECTION,
@@ -77,6 +94,12 @@ def load_config() -> AppConfig:
         model="veo3",
         max_retries=3,
         retry_backoff_seconds=3,
+        image_urls=DEFAULT_IMAGE_URLS,
+        generation_type=DEFAULT_GENERATION_TYPE,
+        enable_translation=True,
+        watermark=None,
+        callback_url=None,
+        seed=None,
     )
 
     LOGGER.info(
@@ -87,4 +110,7 @@ def load_config() -> AppConfig:
         config.results_dir,
     )
 
+    LOGGER.info("Using API root %s (raw env value %s)", config.api_root, raw_base_url)
+
     return config
+

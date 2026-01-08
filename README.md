@@ -11,7 +11,7 @@ configuration load, through polling and retries, to streaming the finished MP4 i
 
 - Python 3.11+
 - A valid KieAI API key with access to the `veo3` model
-- Network egress to `https://api.kieai.com`
+- Network egress to `https://api.kie.ai`
 
 ## Installation
 
@@ -26,7 +26,7 @@ pip install -r requirements.txt
 | Variable | Description |
 | --- | --- |
 | `KIEAI_API_KEY` | **Required**. Bearer token passed to the VIE API. |
-| `KIEAI_BASE_URL` | Optional. Defaults to `https://api.kieai.com/v1`. |
+| `KIEAI_BASE_URL` | Optional. Defaults to `https://api.kie.ai/api/v1/veo/generate`. The app automatically trims the `/generate` suffix so it can also call `/record-info`. |
 
 All other inputs (topic, reference image URL, narration text, directions, duration, aspect
 ratio) remain hardcoded per project requirements. The application creates `./results/`
@@ -41,10 +41,13 @@ python -m src.main
 Execution flow:
 
 1. Load configuration and compose the German prompt/stage directions.
-2. Submit a `veo3` generation request referencing the bench photo.
-3. Poll the task every 20 seconds (up to 10 minutes) with logged status transitions.
-4. Stream the finished MP4 to `results/stone-bench-walkthrough-intro.mp4` and log the
-   completion message.
+2. Submit a `veo3` generation request referencing the bench photo via `POST /generate` with
+   the documented payload fields (`prompt`, `imageUrls`, `model`, `aspectRatio`,
+   `generationType`, `enableTranslation`, plus optional overrides).
+3. Poll `GET /record-info?taskId=<id>` every 20 seconds (up to 10 minutes) while logging
+   each reported `successFlag` transition.
+4. Stream the finished MP4 (first `resultUrls` entry) to
+   `results/stone-bench-walkthrough-intro.mp4` and log the completion message.
 
 Any HTTP failures encounter logged retries with exponential-style backoff. Timeouts,
 failures, and missing asset URLs raise descriptive exceptions so automation can react.

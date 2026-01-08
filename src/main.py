@@ -27,11 +27,15 @@ def run() -> None:
 
     client = KieAIClient(config)
     request = GenerationRequest(
-        model=config.model,
         prompt=prompt,
-        duration_seconds=config.duration_seconds,
+        image_urls=config.image_urls,
+        model=config.model,
         aspect_ratio=config.aspect_ratio,
-        reference_image_url=config.reference_image_url,
+        generation_type=config.generation_type,
+        enable_translation=config.enable_translation,
+        watermark=config.watermark,
+        callback_url=config.callback_url,
+        seed=config.seed,
     )
 
     submission = client.submit_generation(request)

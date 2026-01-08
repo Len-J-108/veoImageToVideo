@@ -10,7 +10,7 @@ Gesprochener Text (Deutsch): "{speech}"
 
 Outro: {outro}
 
-Visuelle Referenz: Die Szene beginnt mit einer Person, die auf einer Steinbank vor einer rauen Steinmauer sitzt. Nutze die Referenzaufnahme ({reference_url}) für Kleidung, Licht und Textur. Die Person soll im Video aufstehen, um die Bank herumgehen und währenddessen den obigen Text sprechen."""  # noqa: E501
+Visuelle Referenz: Die Szene beginnt mit einer Person, die auf einer antiken Bank vor einer rauen Steinmauer sitzt. Die Person soll im Video aufstehen und währenddessen den obigen Text sprechen."
 
 
 def build_prompt(config: AppConfig) -> str:
