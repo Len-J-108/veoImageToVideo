@@ -1,31 +1,62 @@
-import argparse
-import asyncio
+"""Entrypoint orchestrating the image-to-video generation workflow."""
+
+from __future__ import annotations
+
 import logging
-import os
-from config import KIE_API_KEY, DEFAULT_LANGUAGE, DEFAULT_DURATION
-from kie_client import build_payload, submit_generation, fetch_status, download_video
+import sys
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from src.client import KieAIClient
+from src.config import load_config
+from src.downloader import download_asset
+from src.models import GenerationRequest
+from src.prompt_builder import build_prompt
 
-async def generate_intro_video(reference_image_url, prompt, spoken_language, monologue, character_directions, topic_name, video_length_seconds):
-    async with aiohttp.ClientSession() as session:
-        payload = await build_payload(prompt, monologue, character_directions, spoken_language, reference_image_url, video_length_seconds)
-        response = await submit_generation(session, KIE_API_KEY, payload)
-        task_id = response["data"]["taskId"]
-        
-        logger.info(f"Video generation task submitted. Task ID: {task_id}")
-        
-        # Implement logic for polling video generation...
-        # (To be filled in)
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+
+
+def run() -> None:
+    logger = logging.getLogger(__name__)
+    config = load_config()
+    prompt = build_prompt(config)
+    logger.info("Prompt composed for topic %s", config.topic)
+
+    client = KieAIClient(config)
+    request = GenerationRequest(
+        model=config.model,
+        prompt=prompt,
+        duration_seconds=config.duration_seconds,
+        aspect_ratio=config.aspect_ratio,
+        reference_image_url=config.reference_image_url,
+    )
+
+    submission = client.submit_generation(request)
+    task_status = client.poll_until_complete(submission.task_id)
+    asset_url = task_status.asset_url
+    if not asset_url:
+        raise RuntimeError(
+            f"Task {task_status.task_id} completed but no asset URL was returned"
+        )
+
+    output_path = config.results_dir / f"{config.topic}-intro.mp4"
+    download_asset(asset_url, output_path)
+
+    logger.info("Workflow completed; video available at %s", output_path)
+
+
+def main() -> int:
+    configure_logging()
+    try:
+        run()
+        return 0
+    except Exception as exc:  # pylint: disable=broad-except
+        logging.getLogger(__name__).exception("Workflow failed: %s", exc)
+        return 1
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate a video from a reference image.")
-    parser.add_argument('--reference-image-url', required=True, help='URL of the reference image')
-    parser.add_argument('--prompt', required=True, help='Text prompt for video generation')
-    parser.add_argument('--monologue', required=True, help='The spoken monologue')
-    parser.add_argument('--directions', required=True, help='Character mood and behaviors directions')
-    parser.add_argument('--topic', required=True, help='Topic for naming the video file')
-    parser.add_argument('--language', default=DEFAULT_LANGUAGE, help='Language for the spoken content')
-    parser.add_argument('--duration', type=int, default=DEFAULT_DURATION, help='Duration of the video in seconds')
-    args = parser.parse_args()
-    asyncio.run(generate_intro_video(args.reference_image_url, args.prompt, args.language, args.monologue, args.directions, args.topic, args.duration))
+    raise SystemExit(main())
